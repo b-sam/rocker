@@ -63,9 +63,46 @@ RUN usermod -l rstudio docker \
 RUN wget -P /tmp/ https://github.com/just-containers/s6-overlay/releases/download/v1.11.0.1/s6-overlay-amd64.tar.gz \
   && tar xzf /tmp/s6-overlay-amd64.tar.gz -C /
 
+# Downloads URLs
+ENV MS_ODBC_URL https://download.microsoft.com/download/B/C/D/BCDD264C-7517-4B7D-8159-C99FC5535680/RedHat6/msodbcsql-11.0.2270.0.tar.gz
+ENV FIX_SCRIPT Microsoft--SQL-Server--ODBC-Driver-1.0-for-Linux-Fixed-Install-Scripts
+ENV FIX_SCRIPT_URL https://github.com/Andrewpk/${FIX_SCRIPT}/archive/master.zip
+
+# Set the locale
+RUN locale-gen en_US.UTF-8
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
+
+RUN apt-get update && apt-get -y install aptitude wget unzip make gcc lsb-release libkrb5-3 libgssapi-krb5-2
+
+# Download ODBC install files & scripts
+RUN cd /tmp && wget -O msodbcsql.tar.gz ${MS_ODBC_URL} && wget -O odbc-fixed.zip ${FIX_SCRIPT_URL}
+
+RUN cd /tmp && wget -O unixODBC-2.3.4.tar.gz  http://www.unixodbc.org/unixODBC-2.3.4.tar.gz
+
+# Unzip downloaded files
+RUN cd /tmp && tar -xzf ./msodbcsql.tar.gz && unzip -o ./odbc-fixed.zip && cp ./${FIX_SCRIPT}-master/* ./msodbcsql-11.0.2270.0
+
+# Run install scripts
+RUN cd /tmp/msodbcsql-11.0.2270.0 && yes YES | ./build_dm.sh --download-url=file:///tmp/unixODBC-2.3.4.tar.gz  --accept-warning --libdir=/usr/lib/x86_64-linux-gnu && ./install.sh install --accept-license --force
+
+# Clean installation files
+#RUN apt-get remove -y aptitude wget unzip make gcc && apt-get -y autoremove && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+
+
 COPY userconf.sh /etc/cont-init.d/conf
 COPY run.sh /etc/services.d/rstudio/run
+COPY odbc.ini /etc/odbc.ini
+RUN chmod 777 /etc/odbc.ini
 
+# Add symbolic links for missing libraries
+RUN ln -s /usr/lib/x86_64-linux-gnu/libssl.so.1.0.0 /usr/lib/x86_64-linux-gnu/libssl.so.10
+RUN ln -s /usr/lib/x86_64-linux-gnu/libcrypto.so.1.0.0 /usr/lib/x86_64-linux-gnu/libcrypto.so.10
+RUN ln -s /usr/lib/x86_64-linux-gnu/libodbcinst.so.2 /usr/lib/x86_64-linux-gnu/libodbcinst.so.1
+
+RUN R -e "install.packages(c('RODBC','ggplot2','shiny', 'rmarkdown', 'tm', 'wordcloud', 'memoise'), repos='http://cran.rstudio.com/')"
 
 COPY add-students.sh /usr/local/bin/add-students
 EXPOSE 8787
